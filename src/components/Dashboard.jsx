@@ -1,7 +1,3 @@
-// Dashboard.jsx - Main component for task management interface
-
-// Import necessary dependencies and hooks for state management, routing, and Firebase
-
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import {
@@ -22,38 +18,28 @@ import CreateTaskModal from "./CreateTaskModal";
 import EditTaskModal from "./EditTaskModal";
 import TaskStats from "./TaskStats";
 
-// Main Dashboard component responsible for overall task management functionality
 export default function Dashboard() {
-  // State management for tasks and UI control
-  const [tasks, setTasks] = useState([]); // Stores all tasks
-  const [filter, setFilter] = useState("all"); // Controls task filter view
-  const [isModalOpen, setIsModalOpen] = useState(false); // Controls create task modal
-  const [isEditModalOpen, setIsEditModalOpen] = useState(false); // Controls edit task modal
-  const [editingTask, setEditingTask] = useState(null); // Stores task being edited
-  const [isLoading, setIsLoading] = useState(true); // Loading state indicator
+  const [tasks, setTasks] = useState([]);
+  const [filter, setFilter] = useState("all");
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [editingTask, setEditingTask] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState("");
 
-  // Hook for accessing authentication context
   const { user, logout } = useAuth();
-
-  // Hook for accessing theme context
   const { isDarkMode, toggleTheme } = useTheme();
-
-  // Hook for navigation
   const navigate = useNavigate();
 
-  // Effect hook to fetch and listen for task updates
+  // Fetch tasks and set up real-time listener
   useEffect(() => {
-    if (!user) return; // Guard clause if no user
+    if (!user) return;
 
     try {
-      // Create query to fetch user's tasks
       const q = query(collection(db, "tasks"), where("userId", "==", user.uid));
-
-      // Set up real-time listener for tasks
       const unsubscribe = onSnapshot(
         q,
         (snapshot) => {
-          // Transform and sort tasks by creation time
           const tasksData = snapshot.docs
             .map((doc) => ({
               id: doc.id,
@@ -73,7 +59,6 @@ export default function Dashboard() {
         }
       );
 
-      // Cleanup function to unsubscribe from listener
       return () => unsubscribe();
     } catch (error) {
       console.error("Error setting up task listener:", error);
@@ -81,13 +66,50 @@ export default function Dashboard() {
     }
   }, [user]);
 
-  // Handler for creating new tasks
+  // Archive logic
+  useEffect(() => {
+    const checkAndArchiveTasks = async () => {
+      const completedTasks = tasks.filter(
+        (task) =>
+          task.isCompleted &&
+          !task.isArchived &&
+          task.completedAt &&
+          new Date().getTime() -
+            new Date(task.completedAt.seconds * 1000).getTime() >
+            10 * 1000 //24hrs --> 24 * 60 * 60 * 1000
+      );
+
+      for (const task of completedTasks) {
+        const taskRef = doc(db, "tasks", task.id);
+        try {
+          await updateDoc(taskRef, {
+            isArchived: true,
+            archivedAt: serverTimestamp(),
+          });
+          console.log("Task archived:", task.id); // For debugging
+        } catch (error) {
+          console.error("Error archiving task:", error);
+        }
+      }
+    };
+
+    // Check for tasks to archive every 5 sec
+    const interval = setInterval(checkAndArchiveTasks, 5 * 1000); // every 1 hr --> 60 * 60 * 1000
+
+    // Initial check
+    checkAndArchiveTasks();
+
+    return () => clearInterval(interval);
+  }, [tasks]);
+
   const handleCreateTask = async (taskData) => {
     try {
       await addDoc(collection(db, "tasks"), {
         ...taskData,
         userId: user.uid,
         createdAt: serverTimestamp(),
+        completedAt: taskData.isCompleted ? serverTimestamp() : null,
+        isArchived: false,
       });
       setIsModalOpen(false);
     } catch (error) {
@@ -96,7 +118,6 @@ export default function Dashboard() {
     }
   };
 
-  // Handler for updating existing tasks
   const handleUpdateTask = async (updatedTask) => {
     try {
       const taskRef = doc(db, "tasks", updatedTask.id);
@@ -106,8 +127,20 @@ export default function Dashboard() {
         deadline: updatedTask.deadline,
         isCompleted: updatedTask.isCompleted,
         isImportant: updatedTask.isImportant,
+        attachment: updatedTask.attachment,
         updatedAt: serverTimestamp(),
       };
+
+      // If completion status changed, set completedAt
+      if (
+        updatedTask.isCompleted !==
+        tasks.find((t) => t.id === updatedTask.id)?.isCompleted
+      ) {
+        taskData.completedAt = updatedTask.isCompleted
+          ? serverTimestamp()
+          : null;
+        taskData.isArchived = false; // Reset archive status when completion changes
+      }
 
       await updateDoc(taskRef, taskData);
       setIsEditModalOpen(false);
@@ -118,7 +151,6 @@ export default function Dashboard() {
     }
   };
 
-  // Handler for user logout
   const handleLogout = async () => {
     try {
       await logout();
@@ -128,21 +160,25 @@ export default function Dashboard() {
     }
   };
 
-  // Filter tasks based on current filter selection
   const filteredTasks = tasks.filter((task) => {
+    const matchesSearch =
+      task.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      task.description.toLowerCase().includes(searchQuery.toLowerCase());
+
     switch (filter) {
       case "incomplete":
-        return !task.isCompleted;
+        return !task.isCompleted && !task.isArchived && matchesSearch;
       case "completed":
-        return task.isCompleted;
+        return task.isCompleted && !task.isArchived && matchesSearch;
       case "important":
-        return task.isImportant;
+        return task.isImportant && !task.isArchived && matchesSearch;
+      case "archive":
+        return task.isArchived && matchesSearch;
       default:
-        return true;
+        return !task.isArchived && matchesSearch;
     }
   });
 
-  // Get display title based on current filter
   const getDisplayTitle = () => {
     switch (filter) {
       case "incomplete":
@@ -151,15 +187,16 @@ export default function Dashboard() {
         return "Completed";
       case "important":
         return "Important";
+      case "archive":
+        return "Archive";
       default:
         return "All";
     }
   };
 
-  // JSX for the dashboard layout
   return (
     <div
-      className={`flex h-screen transition-colors duration-200 ${
+      className={`flex h-full transition-colors duration-200 ${
         isDarkMode ? "bg-gray-900" : "bg-gray-50"
       }`}
     >
@@ -188,6 +225,7 @@ export default function Dashboard() {
           </div>
 
           <nav className="space-y-2">
+            {/* All Tasks */}
             <button
               onClick={() => setFilter("all")}
               className={`w-full flex items-center space-x-3 px-4 py-2.5 rounded-lg transition-colors ${
@@ -197,7 +235,7 @@ export default function Dashboard() {
                     : "bg-blue-500 text-white"
                   : isDarkMode
                   ? "text-gray-300 hover:bg-gray-700"
-                  : "text-{/* Navigation */}gray-600 hover:bg-gray-100"
+                  : "text-gray-600 hover:bg-gray-100"
               }`}
             >
               <svg
@@ -221,10 +259,11 @@ export default function Dashboard() {
                     : "bg-gray-200 text-gray-600"
                 }`}
               >
-                {tasks.length}
+                {tasks.filter((task) => !task.isArchived).length}
               </span>
             </button>
 
+            {/* Pending Tasks */}
             <button
               onClick={() => setFilter("incomplete")}
               className={`w-full flex items-center space-x-3 px-4 py-2.5 rounded-lg transition-colors ${
@@ -258,10 +297,14 @@ export default function Dashboard() {
                     : "bg-gray-200 text-gray-600"
                 }`}
               >
-                {tasks.filter((task) => !task.isCompleted).length}
+                {
+                  tasks.filter((task) => !task.isCompleted && !task.isArchived)
+                    .length
+                }
               </span>
             </button>
 
+            {/* Completed Tasks */}
             <button
               onClick={() => setFilter("completed")}
               className={`w-full flex items-center space-x-3 px-4 py-2.5 rounded-lg transition-colors ${
@@ -295,10 +338,14 @@ export default function Dashboard() {
                     : "bg-gray-200 text-gray-600"
                 }`}
               >
-                {tasks.filter((task) => task.isCompleted).length}
+                {
+                  tasks.filter((task) => task.isCompleted && !task.isArchived)
+                    .length
+                }
               </span>
             </button>
 
+            {/* Important Tasks */}
             <button
               onClick={() => setFilter("important")}
               className={`w-full flex items-center space-x-3 px-4 py-2.5 rounded-lg transition-colors ${
@@ -332,7 +379,48 @@ export default function Dashboard() {
                     : "bg-gray-200 text-gray-600"
                 }`}
               >
-                {tasks.filter((task) => task.isImportant).length}
+                {
+                  tasks.filter((task) => task.isImportant && !task.isArchived)
+                    .length
+                }
+              </span>
+            </button>
+
+            {/* Archive Tasks */}
+            <button
+              onClick={() => setFilter("archive")}
+              className={`w-full flex items-center space-x-3 px-4 py-2.5 rounded-lg transition-colors ${
+                filter === "archive"
+                  ? isDarkMode
+                    ? "bg-blue-600 text-white"
+                    : "bg-blue-500 text-white"
+                  : isDarkMode
+                  ? "text-gray-300 hover:bg-gray-700"
+                  : "text-gray-600 hover:bg-gray-100"
+              }`}
+            >
+              <svg
+                className="w-5 h-5"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="2"
+                  d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"
+                />
+              </svg>
+              <span>Archive</span>
+              <span
+                className={`ml-auto px-2 py-0.5 rounded-full text-xs ${
+                  isDarkMode
+                    ? "bg-gray-700 text-gray-300"
+                    : "bg-gray-200 text-gray-600"
+                }`}
+              >
+                {tasks.filter((task) => task.isArchived).length}
               </span>
             </button>
           </nav>
@@ -340,7 +428,6 @@ export default function Dashboard() {
 
         {/* Bottom Buttons */}
         <div className="absolute bottom-0 left-0 w-full p-6 space-y-3">
-          {/* Theme Toggle Button */}
           <button
             onClick={toggleTheme}
             className={`w-full flex items-center justify-center space-x-2 px-4 py-2.5 rounded-lg transition-colors ${
@@ -386,7 +473,6 @@ export default function Dashboard() {
             )}
           </button>
 
-          {/* Sign Out Button */}
           <button
             onClick={handleLogout}
             className={`w-full flex items-center justify-center space-x-2 px-4 py-2.5 rounded-lg transition-colors ${
@@ -450,9 +536,101 @@ export default function Dashboard() {
           </div>
 
           <div className="mb-6">
-            <TaskStats tasks={tasks} isDarkMode={isDarkMode} />
+            <TaskStats
+              tasks={tasks.filter((task) => !task.isArchived)}
+              isDarkMode={isDarkMode}
+            />
           </div>
 
+          {/* Search Bar */}
+          <div className="mb-6">
+            <div
+              className={`relative ${
+                isDarkMode ? "text-gray-200" : "text-gray-600"
+              }`}
+            >
+              <input
+                type="text"
+                placeholder="Search tasks..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className={`w-full p-3 pl-10 rounded-lg border focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors duration-200 ${
+                  isDarkMode
+                    ? "bg-gray-700 border-gray-600 text-white"
+                    : "bg-white border-gray-300"
+                }`}
+              />
+              <div className="absolute left-3 top-3">
+                <svg
+                  className="w-5 h-5"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth="2"
+                    d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                  />
+                </svg>
+              </div>
+            </div>
+          </div>
+
+          {/* Archive Banner */}
+          {filter === "archive" && (
+            <div
+              className={`mb-6 p-4 rounded-lg ${
+                isDarkMode ? "bg-gray-700" : "bg-blue-50"
+              }`}
+            >
+              <div className="flex items-start">
+                <div
+                  className={`flex-shrink-0 ${
+                    isDarkMode ? "text-blue-400" : "text-blue-500"
+                  }`}
+                >
+                  <svg
+                    className="h-5 w-5"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth="2"
+                      d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                    />
+                  </svg>
+                </div>
+                <div className="ml-3">
+                  <h3
+                    className={`text-sm font-medium ${
+                      isDarkMode ? "text-gray-100" : "text-blue-800"
+                    }`}
+                  >
+                    About Archive
+                  </h3>
+                  <div
+                    className={`mt-2 text-sm ${
+                      isDarkMode ? "text-gray-300" : "text-blue-700"
+                    }`}
+                  >
+                    <p>
+                      Completed tasks are automatically moved to the archive
+                      after 24 hours. This helps keep your main task list clean
+                      and organized while maintaining a record of your completed
+                      work.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Tasks Display */}
           {isLoading ? (
             <div className="flex justify-center items-center h-64">
               <div
@@ -462,32 +640,67 @@ export default function Dashboard() {
               ></div>
             </div>
           ) : (
-            <>
+            <div className="h-[calc(100vh-320px)] overflow-y-auto">
               {filteredTasks.length === 0 ? (
                 <div
                   className={`text-center py-12 ${
                     isDarkMode ? "text-gray-400" : "text-gray-600"
                   }`}
                 >
-                  <svg
-                    className="mx-auto h-12 w-12 mb-4"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth="2"
-                      d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"
-                    />
-                  </svg>
-                  <p className="text-lg font-medium mb-2">No tasks found</p>
-                  <p>
-                    {filter === "all"
-                      ? "Get started by creating your first task!"
-                      : `No ${getDisplayTitle().toLowerCase()} tasks available.`}
-                  </p>
+                  {filter === "archive" ? (
+                    <div className="text-center py-8">
+                      <div
+                        className={`mb-4 ${
+                          isDarkMode ? "text-gray-400" : "text-gray-600"
+                        }`}
+                      >
+                        <svg
+                          className="mx-auto h-12 w-12 mb-4"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth="2"
+                            d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"
+                          />
+                        </svg>
+                        <h3 className="text-lg font-medium mb-2">
+                          No archived tasks yet
+                        </h3>
+                        <p className="text-sm">
+                          Completed tasks will be automatically moved here after
+                          24 hours
+                        </p>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <svg
+                        className="mx-auto h-12 w-12 mb-4"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth="2"
+                          d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"
+                        />
+                      </svg>
+                      <p className="text-lg font-medium mb-2">No tasks found</p>
+                      <p>
+                        {searchQuery
+                          ? "No tasks match your search"
+                          : filter === "all"
+                          ? "Get started by creating your first task!"
+                          : `No ${getDisplayTitle().toLowerCase()} tasks available.`}
+                      </p>
+                    </>
+                  )}
                 </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -504,12 +717,12 @@ export default function Dashboard() {
                   ))}
                 </div>
               )}
-            </>
+            </div>
           )}
         </div>
       </div>
 
-      {/* Create Task Modal */}
+      {/* Modals */}
       <CreateTaskModal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
@@ -517,7 +730,6 @@ export default function Dashboard() {
         isDarkMode={isDarkMode}
       />
 
-      {/* Edit Task Modal */}
       <EditTaskModal
         isOpen={isEditModalOpen}
         onClose={() => {

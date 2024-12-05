@@ -1,63 +1,62 @@
-// Signup.jsx - Component for new user registration
-
-// Import necessary hooks and utilities
-
 import { useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { useTheme } from "../context/ThemeContext";
 
 export default function Signup() {
-  // State management for form fields and UI states
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  const [email, setEmail] = useState(""); // User email
-  const [password, setPassword] = useState(""); // User password
-  const [confirmPassword, setConfirmPassword] = useState(""); // Password confirmation
-  const [error, setError] = useState(""); // Error messages
-  const [loading, setLoading] = useState(false); // Loading state
   const navigate = useNavigate();
-  const { signup } = useAuth(); // Authentication context
-  const { isDarkMode } = useTheme(); // Theme context
+  const { signup } = useAuth();
+  const { isDarkMode } = useTheme();
 
-  // Handle form submission for signup
+  // You can change this URL to your desired background image
+  const backgroundImage = "images/bg-pic1.jpg";
+
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    // Validate password match
     if (password !== confirmPassword) {
       return setError("Passwords do not match");
     }
 
     try {
-      setError(""); // Clear any existing errors
-      setLoading(true); // Start loading state
-      await signup(email, password); // Attempt account creation
-      navigate("/dashboard"); // Redirect on success
+      setError("");
+      setLoading(true);
+      await signup(email, password);
+      navigate("/dashboard");
     } catch (error) {
       setError("Failed to create an account");
     }
-    setLoading(false); // End loading state
+    setLoading(false);
   };
 
   return (
     <div
-      className={`min-h-screen flex items-center justify-center transition-colors duration-200 ${
-        isDarkMode ? "bg-gray-900" : "bg-gray-50"
-      }`}
+      className="min-h-screen flex items-center justify-center bg-cover bg-center bg-no-repeat"
+      style={{
+        backgroundImage: `url(${backgroundImage})`,
+      }}
     >
-      <div className="w-full max-w-md px-6">
-        {/* Card container */}
+      {/* Dark overlay for better readability */}
+      <div className="absolute inset-0 bg-black bg-opacity-50"></div>
+
+      <div className="w-full max-w-md px-6 relative z-10">
         <div
-          className={`rounded-2xl shadow-xl overflow-hidden transition-colors duration-200 ${
-            isDarkMode ? "bg-gray-800" : "bg-white"
+          className={`rounded-2xl shadow-xl overflow-hidden backdrop-blur-sm transition-colors duration-200 ${
+            isDarkMode ? "bg-gray-800/90" : "bg-white/90"
           }`}
         >
           {/* Header Section */}
           <div
             className={`px-8 py-6 ${
               isDarkMode
-                ? "bg-gradient-to-r from-blue-600 to-blue-500"
-                : "bg-gradient-to-r from-blue-500 to-blue-400"
+                ? "bg-gradient-to-r from-blue-600/90 to-blue-500/90"
+                : "bg-gradient-to-r from-blue-500/90 to-blue-400/90"
             }`}
           >
             <div className="text-center">
@@ -78,10 +77,7 @@ export default function Signup() {
               </div>
             )}
 
-            {/* Signup form */}
-
             <form onSubmit={handleSubmit} className="space-y-6">
-              {/* Email input */}
               <div>
                 <label
                   className={`block mb-2 text-sm font-medium ${
@@ -104,7 +100,6 @@ export default function Signup() {
                 />
               </div>
 
-              {/* Password input */}
               <div>
                 <label
                   className={`block mb-2 text-sm font-medium ${
@@ -126,7 +121,7 @@ export default function Signup() {
                   onChange={(e) => setPassword(e.target.value)}
                 />
               </div>
-              {/* Confirm Password input */}
+
               <div>
                 <label
                   className={`block mb-2 text-sm font-medium ${
@@ -148,7 +143,7 @@ export default function Signup() {
                   onChange={(e) => setConfirmPassword(e.target.value)}
                 />
               </div>
-              {/* Submit button with loading state */}
+
               <button
                 type="submit"
                 disabled={loading}
@@ -188,7 +183,6 @@ export default function Signup() {
               </button>
             </form>
 
-            {/* Login link for existing users */}
             <div className="mt-6 text-center">
               <p
                 className={`text-sm ${

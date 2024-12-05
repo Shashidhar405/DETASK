@@ -1,20 +1,38 @@
-// TaskCard.jsx - Component for displaying individual task items
-
-// Import Firebase utilities for database operations
-
-import { doc, updateDoc, deleteDoc } from "firebase/firestore";
+import { doc, updateDoc, deleteDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "../firebase";
 
-// Handle task completion toggle
 export default function TaskCard({ task, isDarkMode, onEdit }) {
   const handleComplete = async () => {
     const taskRef = doc(db, "tasks", task.id);
-    await updateDoc(taskRef, {
-      isCompleted: !task.isCompleted, // Toggle completion status
-    });
+    try {
+      if (!task.isCompleted) {
+        // When marking as complete
+        await updateDoc(taskRef, {
+          isCompleted: true,
+          completedAt: serverTimestamp(),
+        });
+
+        // Set a timeout to archive after 10 seconds // 24 hr 60 * 60 * 1000
+        setTimeout(async () => {
+          await updateDoc(taskRef, {
+            isArchived: true,
+            archivedAt: serverTimestamp(),
+          });
+        }, 10 * 1000); //
+      } else {
+        // When unchecking completion
+        await updateDoc(taskRef, {
+          isCompleted: false,
+          completedAt: null,
+          isArchived: false,
+          archivedAt: null,
+        });
+      }
+    } catch (error) {
+      console.error("Error updating task:", error);
+    }
   };
 
-  // Handle task deletion with confirmation
   const handleDelete = async () => {
     if (window.confirm("Are you sure you want to delete this task?")) {
       const taskRef = doc(db, "tasks", task.id);
@@ -22,7 +40,6 @@ export default function TaskCard({ task, isDarkMode, onEdit }) {
     }
   };
 
-  // Format deadline for display
   const formatDeadline = (deadline) => {
     if (!deadline) return "";
     const date = new Date(deadline);
@@ -30,16 +47,13 @@ export default function TaskCard({ task, isDarkMode, onEdit }) {
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
 
-    // Format for today's deadlines
     if (date.toDateString() === today.toDateString()) {
       return `Today at ${date.toLocaleTimeString("en-US", {
         hour: "numeric",
         minute: "2-digit",
         hour12: true,
       })}`;
-    }
-    // Format for tomorrow's deadlines
-    else if (date.toDateString() === tomorrow.toDateString()) {
+    } else if (date.toDateString() === tomorrow.toDateString()) {
       return `Tomorrow at ${date.toLocaleTimeString("en-US", {
         hour: "numeric",
         minute: "2-digit",
@@ -47,7 +61,6 @@ export default function TaskCard({ task, isDarkMode, onEdit }) {
       })}`;
     }
 
-    // Format for other dates
     return date.toLocaleDateString("en-US", {
       month: "short",
       day: "numeric",
@@ -57,21 +70,71 @@ export default function TaskCard({ task, isDarkMode, onEdit }) {
     });
   };
 
-  // Check if task is overdue
   const isOverdue = () => {
     if (!task.deadline || task.isCompleted) return false;
     return new Date(task.deadline) < new Date();
   };
 
+  const renderAttachment = () => {
+    if (!task.attachment) return null;
+
+    return (
+      <div className="mt-3 border-t pt-3">
+        {task.attachment.type?.startsWith("image/") ? (
+          <div className="mt-2">
+            <a
+              href={task.attachment.data}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-block"
+            >
+              <img
+                src={task.attachment.data}
+                alt="Attachment"
+                className="max-h-32 rounded object-contain hover:opacity-90 transition-opacity"
+              />
+            </a>
+          </div>
+        ) : (
+          <a
+            href={task.attachment.data}
+            download={task.attachment.name}
+            className={`flex items-center space-x-2 p-2 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors group ${
+              isDarkMode ? "text-gray-400" : "text-gray-600"
+            }`}
+          >
+            <svg
+              className="w-8 h-8 flex-shrink-0"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth="2"
+                d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"
+              />
+            </svg>
+            <div className="flex flex-col">
+              <span className="text-sm truncate group-hover:text-blue-500">
+                {task.attachment.name}
+              </span>
+              <span className="text-xs text-gray-500">Click to download</span>
+            </div>
+          </a>
+        )}
+      </div>
+    );
+  };
+
   return (
-    // Task card container with theme-aware styling
     <div
       className={`rounded-lg p-4 shadow-lg transition-colors duration-200 ${
         isDarkMode ? "bg-gray-800" : "bg-white"
       }`}
     >
       <div className="flex justify-between items-start mb-3">
-        {/* Task Content Section */}
         <div className="flex-1 pr-4">
           <h3
             className={`text-lg font-semibold ${
@@ -85,7 +148,6 @@ export default function TaskCard({ task, isDarkMode, onEdit }) {
             {task.title}
           </h3>
 
-          {/* Task Description */}
           <p
             className={`text-sm mt-1 ${
               isDarkMode ? "text-gray-400" : "text-gray-600"
@@ -94,18 +156,17 @@ export default function TaskCard({ task, isDarkMode, onEdit }) {
             {task.description}
           </p>
 
-          {/* Deadline Display */}
           <div
             className={`mt-2 flex items-center ${
               isOverdue()
-                ? "text-red-500"
+                ? "text-yellow-500"
                 : isDarkMode
                 ? "text-gray-400"
                 : "text-gray-500"
             }`}
           >
             <svg
-              className="w-4 h-4 mr-1"
+              className="w-4 h-4 mr-1 flex-shrink-0"
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"
@@ -122,9 +183,10 @@ export default function TaskCard({ task, isDarkMode, onEdit }) {
               {isOverdue() && " (Overdue)"}
             </span>
           </div>
+
+          {renderAttachment()}
         </div>
 
-        {/* Action Buttons */}
         <div className="flex space-x-2">
           <button
             onClick={() => onEdit(task)}
@@ -173,12 +235,16 @@ export default function TaskCard({ task, isDarkMode, onEdit }) {
         </div>
       </div>
 
-      {/* Status Tags and Complete Button */}
       <div className="flex justify-between items-center">
         <div className="flex space-x-2">
           {task.isImportant && (
-            <span className="bg-red-500 text-white text-xs px-2 py-1 rounded">
+            <span className="bg-blue-500 text-white text-xs px-2 py-1 rounded">
               Important
+            </span>
+          )}
+          {!task.isCompleted && (
+            <span className="bg-yellow-500 text-white text-xs px-2 py-1 rounded">
+              Pending
             </span>
           )}
           {isOverdue() && (
@@ -188,7 +254,6 @@ export default function TaskCard({ task, isDarkMode, onEdit }) {
           )}
         </div>
 
-        {/* Complete/Incomplete Toggle Button */}
         <button
           onClick={handleComplete}
           className={`px-3 py-1 rounded text-sm transition-colors ${
