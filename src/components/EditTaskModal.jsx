@@ -11,7 +11,6 @@ export default function EditTaskModal({
   const [description, setDescription] = useState("");
   const [date, setDate] = useState("");
   const [time, setTime] = useState("");
-  const [isCompleted, setIsCompleted] = useState(false);
   const [isImportant, setIsImportant] = useState(false);
   const [file, setFile] = useState(null);
   const [filePreview, setFilePreview] = useState(null);
@@ -31,7 +30,6 @@ export default function EditTaskModal({
         setTime(deadlineDate.toTimeString().slice(0, 5));
       }
 
-      setIsCompleted(task.isCompleted || false);
       setIsImportant(task.isImportant || false);
 
       // Set file information if task has an attachment
@@ -92,7 +90,7 @@ export default function EditTaskModal({
         title,
         description,
         deadline: new Date(`${date}T${time || "23:59"}`).toISOString(),
-        isCompleted,
+        isCompleted: task.isCompleted,
         isImportant,
         attachment: file
           ? {
@@ -345,24 +343,6 @@ export default function EditTaskModal({
 
           {/* Existing checkbox options */}
           <div className="flex space-x-6">
-            <label
-              className={`flex items-center cursor-pointer ${
-                isDarkMode ? "text-gray-300" : "text-gray-700"
-              }`}
-            >
-              <input
-                type="checkbox"
-                checked={isCompleted}
-                onChange={(e) => setIsCompleted(e.target.checked)}
-                className={`mr-2 rounded border-2 focus:ring-offset-0 focus:ring-2 focus:ring-blue-500 ${
-                  isDarkMode
-                    ? "bg-gray-700 border-gray-600 text-blue-500"
-                    : "bg-white border-gray-300 text-blue-600"
-                }`}
-              />
-              Mark as completed
-            </label>
-
             <label
               className={`flex items-center cursor-pointer ${
                 isDarkMode ? "text-gray-300" : "text-gray-700"
